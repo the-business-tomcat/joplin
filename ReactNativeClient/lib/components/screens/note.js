@@ -721,6 +721,9 @@ class NoteScreenComponent extends BaseScreenComponent {
 						enabled: true,
 						selectedFolderId: folder ? folder.id : null,
 						onValueChange: async (itemValue, itemIndex) => {
+
+							console.log('!!! pressed note.js');
+
 							if (!note.id) {
 								await this.saveNoteButton_press(itemValue);
 							} else {

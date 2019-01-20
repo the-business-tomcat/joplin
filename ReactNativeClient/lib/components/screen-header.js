@@ -378,7 +378,7 @@ class ScreenHeaderComponent extends Component {
 
 				const titlePickerItems = (mustSelect) => {
 					let output = [];
-					if (mustSelect) output.push({ label: _('Move to notebook...'), value: null });
+					if (mustSelect) output.push({ label: mustSelect, value: null });
 					const folderTree = Folder.buildTree(this.props.folders);
 					output = addFolderChildren(folderTree, output, 0);
 					return output;
@@ -386,7 +386,7 @@ class ScreenHeaderComponent extends Component {
 
 				return (
 					<Dropdown
-						items={titlePickerItems(!!folderPickerOptions.mustSelect)}
+						items={titlePickerItems(folderPickerOptions.mustSelect)}
 						itemHeight={35}
 						labelTransform="trim"
 						selectedValue={('selectedFolderId' in folderPickerOptions) ? folderPickerOptions.selectedFolderId : null}

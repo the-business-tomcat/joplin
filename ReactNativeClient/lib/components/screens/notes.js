@@ -205,6 +205,32 @@ class NotesScreenComponent extends BaseScreenComponent {
 		const thisComp = this;
 		const actionButtonComp = this.props.noteSelectionEnabled || !this.props.visible ? null : <ActionButton addFolderNoteButtons={addFolderNoteButtons} parentFolderId={this.props.selectedFolderId}></ActionButton>
 
+		let folderPickerOptions = this.props.noteSelectionEnabled ? {
+			enabled: this.props.noteSelectionEnabled,
+			mustSelect: _('Move to notebook...'),
+		} : {
+			enabled: true,
+			mustSelect: title,
+			onValueChange: async (itemValue, itemIndex) => {
+
+				console.log('!!!move folder');
+
+				await Folder.moveToFolder(this.props.selectedFolderId, itemValue);
+
+				/*
+				note.parent_id = itemValue;
+
+				const folder = await Folder.load(note.parent_id);
+
+				this.setState({
+					lastSavedNote: Object.assign({}, note),
+					note: note,
+					folder: folder,
+				});
+				*/
+			},
+		}
+
 		return (
 			<View style={rootStyle}>
 				<ScreenHeader
@@ -212,10 +238,7 @@ class NotesScreenComponent extends BaseScreenComponent {
 					menuOptions={this.menuOptions()}
 					parentComponent={thisComp}
 					sortButton_press={this.sortButton_press}
-					folderPickerOptions={{
-						enabled: this.props.noteSelectionEnabled,
-						mustSelect: true,
-					}}
+					folderPickerOptions={folderPickerOptions}
 				/>
 				<NoteList style={{flex: 1}}/>
 				{ actionButtonComp }
