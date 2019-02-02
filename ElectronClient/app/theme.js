@@ -36,7 +36,9 @@ globalStyle.lineInput = {
 	fontFamily: globalStyle.fontFamily,
 };
 
-globalStyle.headerStyle = {};
+globalStyle.headerStyle = {
+	fontFamily: globalStyle.fontFamily,
+};
 
 globalStyle.inputStyle = {
 	border: '1px solid',
@@ -50,6 +52,11 @@ globalStyle.containerStyle = {
 globalStyle.buttonStyle = {
 	marginRight: 10,
 	border: '1px solid',
+	minHeight: 30,
+	minWidth: 80,
+	maxWidth: 160,
+	paddingLeft: 12,
+	paddingRight: 12,
 };
 
 const lightStyle = {
@@ -191,7 +198,6 @@ function addExtraStyles(style) {
 			fontWeight: 'bold'
 		}
 	);
-
 
 	return style;
 }

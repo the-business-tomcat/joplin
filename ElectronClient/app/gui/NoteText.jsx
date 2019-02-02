@@ -28,6 +28,7 @@ const ArrayUtils = require('lib/ArrayUtils');
 const ObjectUtils = require('lib/ObjectUtils');
 const urlUtils = require('lib/urlUtils');
 const dialogs = require('./dialogs');
+const NoteListUtils = require('./utils/NoteListUtils');
 const NoteSearchBar = require('./NoteSearchBar.min.js');
 const markdownUtils = require('lib/markdownUtils');
 const ExternalEditWatcher = require('lib/services/ExternalEditWatcher');
@@ -103,9 +104,9 @@ class NoteTextComponent extends React.Component {
 			}
 		}
 
-		this.onAlarmChange_ = (event) => { if (event.noteId === this.props.noteId) this.reloadNote(this.props); }
-		this.onNoteTypeToggle_ = (event) => { if (event.noteId === this.props.noteId) this.reloadNote(this.props); }
-		this.onTodoToggle_ = (event) => { if (event.noteId === this.props.noteId) this.reloadNote(this.props); }
+		this.onAlarmChange_ = (event) => { if (event.noteId === this.props.noteId) this.scheduleReloadNote(this.props); }
+		this.onNoteTypeToggle_ = (event) => { if (event.noteId === this.props.noteId) this.scheduleReloadNote(this.props); }
+		this.onTodoToggle_ = (event) => { if (event.noteId === this.props.noteId) this.scheduleReloadNote(this.props); }
 
 		this.onEditorPaste_ = async (event = null) => {
 			const formats = clipboard.availableFormats();
@@ -214,7 +215,7 @@ class NoteTextComponent extends React.Component {
 		this.externalEditWatcher_noteChange = (event) => {
 			if (!this.state.note || !this.state.note.id) return;
 			if (event.id === this.state.note.id) {
-				this.reloadNote(this.props);
+				this.scheduleReloadNote(this.props);
 			}
 		}
 
@@ -257,6 +258,8 @@ class NoteTextComponent extends React.Component {
 				showLocalSearch: false,
 			});
 		}
+
+		this.titleField_keyDown = this.titleField_keyDown.bind(this);
 	}
 
 	// Note:
@@ -398,6 +401,20 @@ class NoteTextComponent extends React.Component {
 		}, 500);
 	}
 
+	scheduleReloadNote(props, options = null) {
+		if (this.scheduleReloadNoteIID_) {
+			clearTimeout(this.scheduleReloadNoteIID_);
+			this.scheduleReloadNoteIID_ = null;
+		}
+
+		this.scheduleReloadNoteIID_ = setTimeout(() => {
+			this.reloadNote(props, options);
+		}, 100);
+	}
+
+	// Generally, reloadNote() should not be called directly so that it's not called multiple times
+	// from multiple places within a short interval of time. Instead use scheduleReloadNote() to
+	// delay reloading a bit and make sure that only one reload operation is performed.
 	async reloadNote(props, options = null) {
 		if (!options) options = {};
 		if (!('noReloadIfLocalChanges' in options)) options.noReloadIfLocalChanges = false;
@@ -412,12 +429,17 @@ class NoteTextComponent extends React.Component {
 		let loadingNewNote = true;
 		let parentFolder = null;
 		let noteTags = [];
+		let scrollPercent = 0;
 
 		if (props.newNote) {
 			note = Object.assign({}, props.newNote);
 			this.lastLoadedNoteId_ = null;
 		} else {
 			noteId = props.noteId;
+
+			scrollPercent = this.props.lastEditorScrollPercents[noteId];
+			if (!scrollPercent) scrollPercent = 0;
+
 			loadingNewNote = stateNoteId !== noteId;
 			noteTags = await Tag.tagsByNoteId(noteId);
 			this.lastLoadedNoteId_ = noteId;
@@ -481,6 +503,12 @@ class NoteTextComponent extends React.Component {
 				}
 				this.editor_.editor.clearSelection();
 				this.editor_.editor.moveCursorTo(0,0);
+
+				if (scrollPercent) {
+					setTimeout(() => {
+						this.setEditorPercentScroll(scrollPercent);
+					}, 10);
+				}
 			}
 		}
 
@@ -535,9 +563,9 @@ class NoteTextComponent extends React.Component {
 
 	async componentWillReceiveProps(nextProps) {
 		if (nextProps.newNote) {
-			await this.reloadNote(nextProps);
+			await this.scheduleReloadNote(nextProps);
 		} else if ('noteId' in nextProps && nextProps.noteId !== this.props.noteId) {
-			await this.reloadNote(nextProps);
+			await this.scheduleReloadNote(nextProps);
 		} else if ('noteTags' in nextProps && this.areNoteTagsModified(nextProps.noteTags, this.state.noteTags)) {
 			this.setState({
 				noteTags: nextProps.noteTags
@@ -545,7 +573,7 @@ class NoteTextComponent extends React.Component {
 		}
 
 		if ('syncStarted' in nextProps && !nextProps.syncStarted && !this.isModified()) {
-			await this.reloadNote(nextProps, { noReloadIfLocalChanges: true });
+			await this.scheduleReloadNote(nextProps, { noReloadIfLocalChanges: true });
 		}
 
 		if (nextProps.windowCommand) {
@@ -724,7 +752,19 @@ class NoteTextComponent extends React.Component {
 		}
 
 		const m = this.editorMaxScroll();
-		this.setViewerPercentScroll(m ? this.editorScrollTop() / m : 0);
+		const percent = m ? this.editorScrollTop() / m : 0;
+
+		const noteId = this.props.noteId;
+
+		if (noteId) {
+			this.props.dispatch({
+				type: 'EDITOR_SCROLL_PERCENT_SET',
+				noteId: noteId,
+				percent: percent,
+			});
+		}
+
+		this.setViewerPercentScroll(percent);
 	}
 
 	webview_domReady() {
@@ -734,7 +774,7 @@ class NoteTextComponent extends React.Component {
 			webviewReady: true,
 		});
 
-		if (Setting.value('env') === 'dev') this.webview_.openDevTools();
+		// if (Setting.value('env') === 'dev') this.webview_.openDevTools();
 	}
 
 	webview_ref(element) {
@@ -908,6 +948,28 @@ class NoteTextComponent extends React.Component {
 		this.setState({ bodyHtml: bodyHtml });
 	}
 
+	titleField_keyDown(event) {
+		const keyCode = event.keyCode;
+
+		if (keyCode === 9) { // TAB
+			event.preventDefault();
+
+			if (event.shiftKey) {
+				this.props.dispatch({
+					type: 'WINDOW_COMMAND',
+					name: 'focusElement',
+					target: 'noteList',
+				});
+			} else {
+				this.props.dispatch({
+					type: 'WINDOW_COMMAND',
+					name: 'focusElement',
+					target: 'noteBody',
+				});
+			}
+		}
+	}
+
 	async doCommand(command) {
 		if (!command) return;
 
@@ -924,12 +986,26 @@ class NoteTextComponent extends React.Component {
 				fn = this.commandTextBold;
 			} else if (command.name === 'textItalic') {
 				fn = this.commandTextItalic;
-			} else if (command.name === 'insertDateTime' ) {
+			} else if (command.name === 'insertDateTime') {
 				fn = this.commandDateTime;
 			} else if (command.name === 'commandStartExternalEditing') {
 				fn = this.commandStartExternalEditing;
 			} else if (command.name === 'showLocalSearch') {
 				fn = this.commandShowLocalSearch;
+			}
+		}
+
+		if (command.name === 'focusElement' && command.target === 'noteTitle') {
+			fn = () => {
+				if (!this.titleField_) return;
+				this.titleField_.focus();
+			}
+		}
+
+		if (command.name === 'focusElement' && command.target === 'noteBody') {
+			fn = () => {
+				if (!this.editor_) return;
+				this.editor_.editor.focus();
 			}
 		}
 
@@ -1453,6 +1529,61 @@ class NoteTextComponent extends React.Component {
 		return toolbarItems;
 	}
 
+	renderNoNotes(rootStyle) {
+		const emptyDivStyle = Object.assign({
+			backgroundColor: 'black',
+			opacity: 0.1,
+		}, rootStyle);
+		return <div style={emptyDivStyle}></div>
+	}
+
+	renderMultiNotes(rootStyle) {
+		const theme = themeStyle(this.props.theme);
+
+		const multiNotesButton_click = item => {
+			if (item.submenu) {
+				item.submenu.popup(bridge().window());
+			} else {
+				item.click();
+			}
+		}
+
+		const menu = NoteListUtils.makeContextMenu(this.props.selectedNoteIds, {
+			notes: this.props.notes,
+			dispatch: this.props.dispatch,
+		});
+
+		const buttonStyle = Object.assign({}, theme.buttonStyle, {
+			marginBottom: 10,
+		});
+
+		const itemComps = [];
+		const menuItems = menu.items;
+
+		for (let i = 0; i < menuItems.length; i++) {
+			const item = menuItems[i];
+			if (!item.enabled) continue;
+
+			itemComps.push(<button
+				key={item.label}
+				style={buttonStyle}
+				onClick={() => multiNotesButton_click(item)}
+			>{item.label}</button>);
+		}
+
+		rootStyle = Object.assign({}, rootStyle, {
+			paddingTop: rootStyle.paddingLeft,
+			display: 'inline-flex',
+			justifyContent: 'center',
+		});
+
+		return (<div style={rootStyle}>
+			<div style={{display: 'flex', flexDirection: 'column'}}>
+				{itemComps}
+			</div>
+		</div>);
+	}
+
 	render() {
 		const style = this.props.style;
 		const note = this.state.note;
@@ -1472,12 +1603,10 @@ class NoteTextComponent extends React.Component {
 
 		const innerWidth = rootStyle.width - rootStyle.paddingLeft - rootStyle.paddingRight - borderWidth;
 
-		if (!note || !!note.encryption_applied) {
-			const emptyDivStyle = Object.assign({
-				backgroundColor: 'black',
-				opacity: 0.1,
-			}, rootStyle);
-			return <div style={emptyDivStyle}></div>
+		if (this.props.selectedNoteIds.length > 1) {
+			return this.renderMultiNotes(rootStyle);
+		} else if (!note || !!note.encryption_applied) {
+			return this.renderNoNotes(rootStyle);
 		}
 
 		const titleBarStyle = {
@@ -1623,6 +1752,7 @@ class NoteTextComponent extends React.Component {
 			style={titleEditorStyle}
 			value={note && note.title ? note.title : ''}
 			onChange={(event) => { this.title_changeText(event); }}
+			onKeyDown={this.titleField_keyDown}
 			placeholder={ this.props.newNote ? _('Creating new %s...', isTodo ? _('to-do') : _('note')) : '' }
 		/>
 
@@ -1727,6 +1857,7 @@ class NoteTextComponent extends React.Component {
 const mapStateToProps = (state) => {
 	return {
 		noteId: state.selectedNoteIds.length === 1 ? state.selectedNoteIds[0] : null,
+		notes: state.notes,
 		selectedNoteIds: state.selectedNoteIds,
 		noteTags: state.selectedNoteTags,
 		folderId: state.selectedFolderId,
@@ -1742,6 +1873,7 @@ const mapStateToProps = (state) => {
 		selectedSearchId: state.selectedSearchId,
 		watchedNoteFiles: state.watchedNoteFiles,
 		customCss: state.customCss,
+		lastEditorScrollPercents: state.lastEditorScrollPercents,
 	};
 };
 

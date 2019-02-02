@@ -123,6 +123,19 @@ function wrap(text, indent, width) {
 	});
 }
 
+function commandArgumentsToString(args) {
+	let output = [];
+	for (let i = 0; i < args.length; i++) {
+		let arg = args[i];
+		const quote = arg.indexOf('"') >= 0 ? "'" : '"';
+		if (arg.indexOf(' ') >= 0) {
+			arg = quote + arg + quote;
+		}
+		output.push(arg);
+	}
+	return output.join(' ');;
+}
+
 function splitCommandString(command, options = null) {
 	options = options || {};
 	if (!('handleEscape' in options)) {
@@ -225,6 +238,9 @@ function escapeHtml(s) {
 		.replace(/'/g, "&#039;");
 }
 
+// keywords can either be a list of strings, or a list of objects with the format:
+// { value: 'actualkeyword', type: 'regex/string' }
+// The function surrounds the keywords wherever they are, even within other words.
 function surroundKeywords(keywords, text, prefix, suffix) {
 	if (!keywords.length) return text;
 
@@ -232,12 +248,18 @@ function surroundKeywords(keywords, text, prefix, suffix) {
 		if (k.type === 'regex') {
 			return stringUtilsCommon.replaceRegexDiacritics(k.valueRegex);
 		} else {
-			return stringUtilsCommon.replaceRegexDiacritics(stringUtilsCommon.pregQuote(k.value));
+			const value = typeof k === 'string' ? k : k.value;
+			return stringUtilsCommon.replaceRegexDiacritics(stringUtilsCommon.pregQuote(value));
 		}
 	}).join('|');
 	regexString = '(' + regexString + ')'
 	const re = new RegExp(regexString, 'gi');
 	return text.replace(re, prefix + '$1' + suffix);
+}
+
+function substrWithEllipsis(s, start, length) {
+	if (s.length <= length) return s;
+	return s.substr(start, length - 3) + '...';
 }
 
 const REGEX_JAPANESE = /[\u3000-\u303f]|[\u3040-\u309f]|[\u30a0-\u30ff]|[\uff00-\uff9f]|[\u4e00-\u9faf]|[\u3400-\u4dbf]/;
@@ -252,6 +274,6 @@ function scriptType(s) {
 }
 
 module.exports = Object.assign(
-	{ removeDiacritics, escapeFilename, wrap, splitCommandString, padLeft, toTitleCase, urlDecode, escapeHtml, surroundKeywords, scriptType },
+	{ removeDiacritics, substrWithEllipsis, escapeFilename, wrap, splitCommandString, padLeft, toTitleCase, urlDecode, escapeHtml, surroundKeywords, scriptType, commandArgumentsToString },
 	stringUtilsCommon,
 );
